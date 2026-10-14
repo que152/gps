@@ -211,3 +211,108 @@
             toggleShareBtn.classList.replace('hover:bg-red-600', 'hover:bg-green-600');
             btnText.textContent = "Start Sharing";
             btnIcon.textContent = "▶";
+
+            try {
+                await deleteDoc(doc(db, locationsPath, userId));
+            } catch (error) {
+                console.error("Error removing location:", error);
+            }
+        }
+
+        function startListening() {
+            const locationsRef = collection(db, locationsPath);
+            
+            onSnapshot(locationsRef, (snapshot) => {
+                usersGrid.innerHTML = '';
+                const currentUsers = new Set();
+                const bounds = [];
+                let hasActiveUsers = false;
+
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    
+                    // เช็คว่าข้อมูลเก่าเกิน 2 นาที (120,000 มิลลิวินาที) หรือไม่
+                    const updateTime = new Date(data.timestamp).getTime();
+                    const now = new Date().getTime();
+                    if (now - updateTime > 120000) {
+                        return; // ถ้าเก่าเกิน 2 นาที ให้ข้ามการแสดงผลไปเลย ไม่โชว์บนจอ
+                    }
+
+                    hasActiveUsers = true;
+                    currentUsers.add(data.userId);
+                    renderUserCard(data);
+                    
+                    const latLng = [data.lat, data.lng];
+                    bounds.push(latLng);
+
+                    if (markers[data.userId]) {
+                        markers[data.userId].setLatLng(latLng);
+                        markers[data.userId].getPopup().setContent(`<b>${data.name}</b>${data.userId === userId ? ' (You)' : ''}`);
+                    } else {
+                        const marker = L.marker(latLng).addTo(map);
+                        marker.bindPopup(`<b>${data.name}</b>${data.userId === userId ? ' (You)' : ''}`);
+                        markers[data.userId] = marker;
+                    }
+                });
+                
+                if (!hasActiveUsers) {
+                    emptyState.classList.remove('hidden');
+                } else {
+                    emptyState.classList.add('hidden');
+                }
+                
+                for (const id in markers) {
+                    if (!currentUsers.has(id)) {
+                        map.removeLayer(markers[id]);
+                        delete markers[id];
+                    }
+                }
+
+                if (bounds.length > 0 && map) {
+                    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+                }
+            }, (error) => {
+                console.error("Error fetching locations:", error);
+            });
+        }
+
+        function renderUserCard(userData) {
+            const timeAgo = new Date(userData.timestamp).toLocaleTimeString();
+            const isMe = userData.userId === userId;
+
+            const card = document.createElement('div');
+            card.className = `p-5 rounded-2xl shadow-sm border ${isMe ? 'bg-blue-50 border-blue-200' : 'bg-white border-slate-100'}`;
+            
+            card.innerHTML = `
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-inner">
+                        ${userData.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-slate-800 flex items-center gap-2">
+                            ${userData.name}
+                            ${isMe ? '<span class="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full uppercase tracking-wider">You</span>' : ''}
+                        </h3>
+                        <p class="text-xs text-slate-400">อัปเดตล่าสุด: ${timeAgo}</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-sm text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <div>
+                        <span class="block text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-0.5">ละติจูด</span>
+                        <span class="font-mono">${userData.lat.toFixed(6)}</span>
+                    </div>
+                    <div>
+                        <span class="block text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-0.5">ลองจิจูด</span>
+                        <span class="font-mono">${userData.lng.toFixed(6)}</span>
+                    </div>
+                </div>
+            `;
+            usersGrid.appendChild(card);
+        }
+
+        window.addEventListener('beforeunload', () => {
+            if (isSharing) stopSharing();
+        });
+    </script>
+</body>
+</html>
